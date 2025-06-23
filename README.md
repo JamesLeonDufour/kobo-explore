@@ -1,5 +1,5 @@
 
-# KoboToolbox Project Dashboard
+# KoboToolbox Explore
 
 A powerful Streamlit application for KoboToolbox users to **browse, filter, analyze, and export** project metadata and submission data using the KoboToolbox API.
 
