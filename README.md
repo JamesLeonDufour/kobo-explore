@@ -1,5 +1,5 @@
 
-# KoboToolbox Explore
+# Kobo Explore
 
 A powerful Streamlit application for KoboToolbox users to **browse, filter, analyze, and export** project metadata and submission data using the KoboToolbox API.
 
@@ -13,12 +13,12 @@ Supports both the **Project Views API** (for curated lists of projects) and the 
 - Secure login via KoboToolbox **API Token**.
 
 ### 🔄 Flexible Data Source
-- **Project Views API**: Filter by pre-defined project views (if configured in your Kobo account).
+- **Project Views API**: Filter by pre-defined project views (if configured on your Kobo server).
 - **Assets API**: Fetch all accessible surveys directly.
 
 ### 📁 Project Browser
 - View a table of loaded projects with metadata:
-  - Name, UID, Status, Submission Count, Dates, Country, **Sector**, Source View, Owner Username
+  - Name, UID, Status, Submission Count, Dates, Country, Sector, Source View, Owner Username
 - **Dynamic filters** in the sidebar:
   - Project name (keyword search, comma-separated)
   - Country
@@ -35,7 +35,7 @@ Supports both the **Project Views API** (for curated lists of projects) and the 
   - Projects grouped by source view
 
 ### 📝 Form Analyser
-- Analyze form definitions of currently filtered projects by parsing their JSON content (or falling back to XLSForm XML).
+- Analyze form definitions of currently filtered projects by parsing their JSON content.
 - Extracts all question names (`name`) and their associated labels (from all languages if available), and question types.
 - **Keyword Search**:
     - Enter keywords (comma-separated) to search within all extracted question names, labels, and types.
