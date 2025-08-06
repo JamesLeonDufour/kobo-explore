@@ -4,38 +4,36 @@ import io
 import zipfile
 from datetime import datetime
 import pycountry
-import xml.etree.ElementTree as ET # Kept for potential other uses, but not directly for form content parsing now
+import xml.etree.ElementTree as ET
 import json
 from fuzzywuzzy import fuzz
 import re
-import streamlit as st # Streamlit is needed for caching and progress indicators
+import streamlit as st
 
 
 def fetch_all_project_views_metadata(token, server_url, progress_bar=None, status_text=None):
     """
-    Fetches metadata for all available project views from KoboToolbox.
-    Displays progress and handles API errors.
+    Fetches a list of all project views available to the user via the KoboToolbox API.
+    Handles pagination to get all views.
     """
     headers = {
         "Authorization": f"Token {token}",
         "Accept": "application/json"
     }
     all_views = []
-    page_count = 0
-    total_views_count = None # To store the total count from the API response
+    total_views_count = None
     
     pb = progress_bar if progress_bar is not None else st.progress(0)
     st_text = status_text if status_text is not None else st.empty()
-
 
     next_url = f"{server_url}/api/v2/project-views/?format=json"
     while next_url:
         try:
             res = requests.get(next_url, headers=headers, timeout=10)
-            res.raise_for_status() # Raise HTTPError for bad responses (4xx or 5xx)
+            res.raise_for_status()
             data = res.json()
 
-            if total_views_count is None: # Get total count from the first page
+            if total_views_count is None:
                 total_views_count = data.get("count", 0)
                 if total_views_count == 0:
                     st_text.text("No project views found.")
@@ -51,14 +49,13 @@ def fetch_all_project_views_metadata(token, server_url, progress_bar=None, statu
                 all_views.append({
                     "View Name": pv.get("name"),
                     "View UID": pv.get("uid"),
-                    "URL": pv.get("url") # Keep URL for reference if needed
+                    "URL": pv.get("url")
                 })
             
             current_progress = len(all_views) / total_views_count if total_views_count > 0 else 0
             st_text.text(f"Fetching project views: {len(all_views)} of {total_views_count} ({min(100, int(current_progress * 100))}%)")
             pb.progress(current_progress)
 
-            page_count += 1
             next_url = data.get("next")
         except requests.exceptions.RequestException as e:
             st.error(f"Failed to fetch project views: {e}")
@@ -68,30 +65,27 @@ def fetch_all_project_views_metadata(token, server_url, progress_bar=None, statu
     
     return all_views
 
+
 def fetch_assets_for_project_views(selected_view_uids, token, server_url, include_surveys=True, progress_bar=None, status_text=None):
     """
-    Fetches asset metadata (e.g., forms, surveys) for selected project views.
-    Filters by asset_type if specified and derives a 'Status' field.
-    Updates provided progress_bar and status_text.
+    Fetches assets (projects) from a list of selected project views.
+    Gathers metadata for each asset and appends it to a list.
     """
     headers = {
         "Authorization": f"Token {token}",
         "Accept": "application/json"
     }
     all_assets_from_views = []
-    
     pb = progress_bar if progress_bar is not None else st.progress(0)
     st_text = status_text if status_text is not None else st.empty()
 
     total_views = len(selected_view_uids)
     
     for i, view_uid in enumerate(selected_view_uids):
-        view_page_count = 0
-        current_view_assets_fetched = 0
-        total_assets_in_current_view = None # To store total assets for this view
-        
         next_asset_url = f"{server_url}/api/v2/project-views/{view_uid}/assets/?format=json"
-        
+        total_assets_in_current_view = None
+        current_view_assets_fetched = 0
+
         while next_asset_url:
             try:
                 res = requests.get(next_asset_url, headers=headers, timeout=30)
@@ -101,9 +95,7 @@ def fetch_assets_for_project_views(selected_view_uids, token, server_url, includ
                 if total_assets_in_current_view is None:
                     total_assets_in_current_view = data.get("count", 0)
 
-                assets_in_view = data.get("results", [])
-
-                for asset in assets_in_view:
+                for asset in data.get("results", []):
                     if not isinstance(asset, dict):
                         st.warning(f"Skipping unexpected non-dictionary asset in view '{view_uid}': {asset}")
                         continue
@@ -113,16 +105,12 @@ def fetch_assets_for_project_views(selected_view_uids, token, server_url, includ
 
                     settings = asset.get("settings", {})
                     country_list = settings.get("country", [])
-                    sector_data = settings.get("sector") 
+                    sector_data = settings.get("sector")
 
-                    country_label = country_list[0].get("label", "") if country_list and isinstance(country_list, list) and len(country_list) > 0 else ""
-                    country_code = country_list[0].get("value", "") if country_list and isinstance(country_list, list) and len(country_list) > 0 else ""
+                    country_label = country_list[0].get("label", "") if country_list else ""
+                    country_code = country_list[0].get("value", "") if country_list else ""
 
-                    status_label = "Draft" 
-                    if asset.get("deployment_status") == "deployed":
-                        status_label = "Deployed"
-                    elif asset.get("is_archived"):
-                        status_label = "Archived"
+                    status_label = "Deployed" if asset.get("deployment_status") == "deployed" else "Archived" if asset.get("is_archived") else "Draft"
 
                     all_assets_from_views.append({
                         "Name": asset.get("name"),
@@ -137,21 +125,22 @@ def fetch_assets_for_project_views(selected_view_uids, token, server_url, includ
                         "Is Deployed": asset.get("is_deployed", False),
                         "Is Archived": asset.get("is_archived", False),
                         "Status": status_label,
-                        "Owner Username": asset.get("owner__username"), 
-                        "Sector": sector_data # Keep sector as it's part of top-level metadata
-                        # Removed "Form Content Raw" from here, will fetch it in fetch_and_parse_form_definitions
+                        "Owner Username": asset.get("owner__username"),
+                        "Sector": sector_data,
+                        "Operational Purpose": (settings.get("operational_purpose") or {}).get("label"),
+                        "Collects PII": (settings.get("collects_pii") or {}).get("label"),
+                        "Description": settings.get("description", "")
                     })
-                
-                current_view_assets_fetched += len(assets_in_view)
-                view_page_count += 1
+
+                current_view_assets_fetched += len(data.get("results", []))
                 next_asset_url = data.get("next")
 
-                current_view_progress = current_view_assets_fetched / total_assets_in_current_view if total_assets_in_current_view > 0 else 0
-                st_text.text(f"View {i+1}/{total_views}: Loading assets for '{view_uid}' - {current_view_assets_fetched} of {total_assets_in_current_view} ({min(100, int(current_view_progress * 100))}%)")
+                current_view_progress = current_view_assets_fetched / total_assets_in_current_view if total_assets_in_current_view else 0
+                st_text.text(f"View {i+1}/{total_views}: Loading assets for '{view_uid}' - {current_view_assets_fetched} of {total_assets_in_current_view}")
                 pb.progress(min(1.0, (i + current_view_progress) / total_views))
 
             except requests.exceptions.RequestException as e:
-                st.warning(f"Could not fetch assets for project view '{view_uid}': {e}. Skipping this view.")
+                st.warning(f"Could not fetch assets for project view '{view_uid}': {e}")
                 next_asset_url = None
     
     return all_assets_from_views
@@ -159,15 +148,12 @@ def fetch_assets_for_project_views(selected_view_uids, token, server_url, includ
 
 def fetch_all_assets_metadata(token, server_url, include_surveys=True, progress_bar=None, status_text=None):
     """
-    Fetches metadata for all assets directly from the /api/v2/assets/ endpoint.
-    Processes data similarly to maintain consistency with dashboard structure.
-    Updates provided progress_bar and status_text.
+    Fetches metadata for all assets directly from the /api/v2/assets endpoint.
+    Handles pagination and filters for 'survey' type assets if specified.
     """
     headers = {"Authorization": f"Token {token}", "Accept": "application/json"}
     all_assets = []
-    page_count = 0
-    total_assets_count = None # To store the total count from the API response
-    
+    total_assets_count = None
     pb = progress_bar if progress_bar is not None else st.progress(0)
     st_text = status_text if status_text is not None else st.empty()
 
@@ -178,16 +164,14 @@ def fetch_all_assets_metadata(token, server_url, include_surveys=True, progress_
             res.raise_for_status()
             data = res.json()
 
-            if total_assets_count is None: # Get total count from the first page
+            if total_assets_count is None:
                 total_assets_count = data.get("count", 0)
                 if total_assets_count == 0:
                     st_text.text("No assets found.")
                     pb.empty()
                     return []
 
-            results = data.get("results", [])
-            
-            for asset in results:
+            for asset in data.get("results", []):
                 if not isinstance(asset, dict):
                     st.warning(f"Skipping unexpected non-dictionary asset: {asset}")
                     continue
@@ -197,16 +181,12 @@ def fetch_all_assets_metadata(token, server_url, include_surveys=True, progress_
 
                 settings = asset.get("settings", {})
                 country_list = settings.get("country", [])
-                sector_data = settings.get("sector") 
-                
-                country_label = country_list[0].get("label", "") if country_list and isinstance(country_list, list) and len(country_list) > 0 else ""
-                country_code = country_list[0].get("value", "") if country_list and isinstance(country_list, list) and len(country_list) > 0 else ""
+                sector_data = settings.get("sector")
 
-                status_label = "Draft" 
-                if asset.get("deployment_status") == "deployed":
-                    status_label = "Deployed"
-                elif asset.get("is_archived", False):
-                    status_label = "Archived"
+                country_label = country_list[0].get("label", "") if country_list else ""
+                country_code = country_list[0].get("value", "") if country_list else ""
+
+                status_label = "Deployed" if asset.get("deployment_status") == "deployed" else "Archived" if asset.get("is_archived") else "Draft"
 
                 all_assets.append({
                     "Name": asset.get("name"),
@@ -221,16 +201,17 @@ def fetch_all_assets_metadata(token, server_url, include_surveys=True, progress_
                     "Is Deployed": asset.get("is_deployed", False),
                     "Is Archived": asset.get("is_archived", False),
                     "Status": status_label,
-                    "Owner Username": asset.get("owner__username"), 
-                    "Sector": sector_data # Keep sector as it's part of top-level metadata
-                    # Removed "Form Content Raw" from here, will fetch it in fetch_and_parse_form_definitions
+                    "Owner Username": asset.get("owner__username"),
+                    "Sector": sector_data,
+                    "Operational Purpose": (settings.get("operational_purpose") or {}).get("label"),
+                    "Collects PII": (settings.get("collects_pii") or {}).get("label"),
+                    "Description": settings.get("description", "")
                 })
-            
+
             current_progress = len(all_assets) / total_assets_count if total_assets_count > 0 else 0
-            st_text.text(f"Fetching assets: {len(all_assets)} of {total_assets_count} ({min(100, int(current_progress * 100))}%)")
+            st_text.text(f"Fetching assets: {len(all_assets)} of {total_assets_count}")
             pb.progress(current_progress)
 
-            page_count += 1
             next_url = data.get("next")
         except requests.exceptions.RequestException as e:
             st.error(f"Failed to fetch assets from /api/v2/assets/: {e}")
@@ -239,7 +220,6 @@ def fetch_all_assets_metadata(token, server_url, include_surveys=True, progress_
             return []
     
     return all_assets
-
 
 def fetch_and_parse_form_definitions(projects_df, token, server_url):
     """
@@ -325,8 +305,7 @@ def fetch_and_parse_form_definitions(projects_df, token, server_url):
 def fetch_submissions_data_from_v2_json(uid, token, server_url):
     """
     Fetches raw submission data in JSON format from /api/v2/assets/{asset_uid}/data/
-    and converts it to a pandas DataFrame.
-    Handles pagination.
+    and converts it to a pandas DataFrame. Handles pagination.
     """
     headers = {"Authorization": f"Token {token}", "Accept": "application/json"}
     all_submissions = []
