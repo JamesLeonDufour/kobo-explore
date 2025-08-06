@@ -16,7 +16,6 @@ from fuzzywuzzy import fuzz # Keep this import here for fuzz.ratio
 # Import API functions from the new file
 import kobo_api_functions as kobo_api
 
-
 st.set_page_config(layout="wide", page_title="KoboToolbox Project Dashboard")
 st.title("KoboToolbox Project Dashboard")
 
@@ -348,21 +347,62 @@ with tab1:
                 if "Status" in filtered_df.columns:
                     filtered_df = pd.DataFrame() # An empty DataFrame if no status is selected
 
-            # Filter 5: Sector (NEW Logic)
-            if selected_sectors:
-                if "Sector" in filtered_df.columns:
-                    # Apply the same helper function to the DataFrame column for filtering
-                    filtered_df = filtered_df[
-                        filtered_df["Sector"].apply(lambda x: get_sector_display_name(x) in selected_sectors)
-                    ]
-                else:
-                    st.warning("Sector column not found for sector filter.")
+            
+        # Filter: Operational Purpose
+        if "Operational Purpose" in st.session_state.all_loaded_assets_df.columns:
+            operational_purposes = sorted(st.session_state.all_loaded_assets_df["Operational Purpose"].dropna().unique().tolist())
+            selected_operational_purposes = st.sidebar.multiselect("Operational Purpose:", operational_purposes, key="operational_purpose_select")
+        else:
+            selected_operational_purposes = []
+
+        # Filter: Collects PII
+        if "Collects PII" in st.session_state.all_loaded_assets_df.columns:
+            collects_pii_options = st.session_state.all_loaded_assets_df["Collects PII"].dropna().unique().tolist()
+            selected_collects_pii = st.sidebar.multiselect("Collects PII:", collects_pii_options, key="collects_pii_select")
+        else:
+            selected_collects_pii = []
+
+        # Filter: Description (keyword match)
+        description_keywords_input = st.sidebar.text_input(
+            "Search Description (keywords):",
+            value=st.session_state.get('description_keywords_input_val', ''),
+            help="Enter keywords to search in the description.",
+            key="description_keywords_input_widget"
+        )
+        st.session_state.description_keywords_input_val = description_keywords_input
+        description_keywords = [kw.strip() for kw in description_keywords_input.split(',') if kw.strip()]
+
+
         
-            # Filter 6: Minimum Submission Count
-            if "Submission Count" in filtered_df.columns:
-                filtered_df = filtered_df[filtered_df["Submission Count"] >= min_submission_count]
+        # Filter: Operational Purpose
+        if "Operational Purpose" in filtered_df.columns and selected_operational_purposes:
+            filtered_df = filtered_df[filtered_df["Operational Purpose"].isin(selected_operational_purposes)]
+
+        # Filter: Collects PII
+        if "Collects PII" in filtered_df.columns and selected_collects_pii:
+            filtered_df = filtered_df[filtered_df["Collects PII"].isin(selected_collects_pii)]
+
+        # Filter: Description
+        if "Description" in filtered_df.columns and description_keywords:
+            pattern = "|".join(re.escape(word) for word in description_keywords if word)
+            if pattern:
+                filtered_df = filtered_df[filtered_df["Description"].str.contains(pattern, case=False, na=False, regex=True)]
+
+        # Filter 5: Sector (NEW Logic)
+        if selected_sectors:
+            if "Sector" in filtered_df.columns:
+                # Apply the same helper function to the DataFrame column for filtering
+                filtered_df = filtered_df[
+                    filtered_df["Sector"].apply(lambda x: get_sector_display_name(x) in selected_sectors)
+                ]
             else:
-                st.warning("Submission Count column not found for minimum submissions filter.")
+                st.warning("Sector column not found for sector filter.")
+        
+        # Filter 6: Minimum Submission Count
+        if "Submission Count" in filtered_df.columns:
+            filtered_df = filtered_df[filtered_df["Submission Count"] >= min_submission_count]
+        else:
+            st.warning("Submission Count column not found for minimum submissions filter.")
 
         st.session_state.filtered_projects_df = filtered_df
         st.session_state.filters_applied = True # Keep this flag if it's used elsewhere for display logic
